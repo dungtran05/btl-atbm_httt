@@ -39,7 +39,8 @@ class Block:
         return data
 
     def calculate_hash(self) -> str:
-        raw = json.dumps(self.payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        # Phải khớp backend/blockchain.py Block.calculate_hash (mặc định ensure_ascii=True).
+        raw = json.dumps(self.payload(), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
