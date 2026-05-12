@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -30,10 +31,18 @@ def _http_get_json(url: str, timeout_s: float = 5.0) -> Any:
     return json.loads(data.decode("utf-8"))
 
 
-def fetch_peer_chain(base_url: str) -> PeerChain:
-    base = base_url.rstrip("/")
+def _leader_fetch_timeout_s() -> float:
     try:
-        payload = _http_get_json(f"{base}/chain", timeout_s=5.0)
+        return float(os.environ.get("LEADER_FETCH_TIMEOUT_S", "15"))
+    except ValueError:
+        return 15.0
+
+
+def fetch_peer_chain(base_url: str, timeout_s: float | None = None) -> PeerChain:
+    base = base_url.rstrip("/")
+    t = timeout_s if timeout_s is not None else _leader_fetch_timeout_s()
+    try:
+        payload = _http_get_json(f"{base}/chain", timeout_s=t)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         return PeerChain(url=base, ok=False, reason=f"fetch_failed:{exc}")
 

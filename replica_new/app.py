@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import json
 import logging
 import os
 import sys
@@ -26,6 +28,8 @@ except ImportError:
     pass
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from background import BackgroundLeaderSync, BackgroundVerifier
@@ -68,17 +72,38 @@ manager = ReplicaChainManager(ROOT_DIR)
 recovery = RecoveryManager(ROOT_DIR, manager.storage, manager)
 RECOVERY_LOCKED = False
 
+_cors_raw = os.environ.get("REPLICA_CORS_ORIGINS", "*").strip()
+_cors_list = ["*"] if _cors_raw == "*" else [o.strip() for o in _cors_raw.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_list or ["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _sync_with_leader() -> dict[str, Any]:
+    """Kéo chain từ LEADER_URL; ghi blockchain.json và (trước đó) snapshot cũ vào blockchain_backup.json."""
+    global RECOVERY_LOCKED
+    out = recovery.sync_from_leader()
+    if isinstance(out, dict) and out.get("replaced"):
+        RECOVERY_LOCKED = False
+        logger.info("Đồng bộ leader xong, đã mở recovery_locked")
+    payload = dict(out) if isinstance(out, dict) else {"result": out}
+    payload["local_files"] = {
+        "blockchain": str(manager.storage.path.resolve()),
+        "blockchain_backup": str(manager.storage.backup_path.resolve()),
+    }
+    return payload
+
 
 def _leader_sync_tick() -> None:
-    """Đồng bị với leader; nếu ghi đè chain thành công thì mở khóa recovery_locked."""
-    global RECOVERY_LOCKED
+    """Đồng bộ với leader (nền); lỗi chỉ ghi log."""
     try:
-        out = recovery.sync_from_leader()
-        if isinstance(out, dict) and out.get("replaced"):
-            RECOVERY_LOCKED = False
-            logger.info("Đồng bộ leader xong, đã mở recovery_locked")
+        _sync_with_leader()
     except Exception:
-        logger.exception("Lỗi đồng bị leader")
+        logger.exception("Lỗi đồng bộ leader")
 
 
 @app.on_event("startup")
@@ -100,7 +125,7 @@ def startup() -> None:
             logger.exception("Replica auto-recovery failed")
             RECOVERY_LOCKED = True
 
-    # Một lần đồng bị ngay khi có LEADER_URL (sau phục hồi cục bộ).
+    # Một lần đồng bộ ngay khi có LEADER_URL (sau phục hồi cục bộ).
     if os.environ.get("LEADER_URL", "").strip():
         _leader_sync_tick()
 
@@ -122,12 +147,43 @@ def startup() -> None:
     if leader_url and sync_interval > 0:
         BackgroundLeaderSync(_leader_sync_tick, interval_s=sync_interval).start()
     elif leader_url and sync_interval <= 0:
-        logger.warning("LEADER_SYNC_INTERVAL_S<=0: chỉ đồng bị thủ công qua POST /replica/sync")
+        logger.warning("LEADER_SYNC_INTERVAL_S<=0: chỉ đồng bộ thủ công qua GET/POST /replica/sync hoặc mở trang /")
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "role": "replica", "recovery_locked": str(RECOVERY_LOCKED).lower()}
+
+
+@app.get("/", response_class=HTMLResponse)
+def root_pull_chain() -> str:
+    """
+    Mở trang này trên mỗi máy replica: đồng bộ ngay chain từ Leader (backend),
+    cập nhật data/blockchain.json và data/blockchain_backup.json (bản trước khi ghi).
+    """
+    if os.environ.get("SYNC_ON_ROOT_GET", "true").strip().lower() not in ("1", "true", "yes", "on", ""):
+        return (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Replica</title></head><body>"
+            "<p>Replica DocumentChain. Đồng bộ khi mở trang chủ đang tắt (SYNC_ON_ROOT_GET=false).</p>"
+            "<p><a href='/replica/sync'>GET /replica/sync</a> — <a href='/docs'>API docs</a></p></body></html>"
+        )
+    try:
+        result = _sync_with_leader()
+        body = html.escape(json.dumps(result, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        logger.exception("root sync failed")
+        body = html.escape(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+    return f"""<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DocumentChain Replica — đồng bộ</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;">
+<h1>Đồng bộ blockchain</h1>
+<p>Đã gọi Leader (<code>LEADER_URL</code>) và cập nhật file cục bộ. Trước mỗi lần ghi mới,
+<code>blockchain_backup.json</code> giữ snapshot của <code>blockchain.json</code> trước đó.</p>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto;">{body}</pre>
+<p><a href="/">Làm lại</a> · <a href="/replica/sync">JSON /replica/sync</a> · <a href="/docs">Swagger</a> · <a href="/health">health</a></p>
+</body></html>"""
 
 
 @app.get("/chain")
@@ -146,15 +202,12 @@ def verify() -> dict[str, Any]:
     return {"ok": ok, "bad_index": bad, "reason": reason}
 
 
+@app.get("/replica/sync")
 @app.post("/replica/sync")
 def replica_sync() -> dict[str, Any]:
-    """Đồng bị thủ công với LEADER_URL (cùng logic luồng định kỳ)."""
-    global RECOVERY_LOCKED
+    """Đồng bộ thủ công với LEADER_URL (cùng luồng nền); GET để mở trực tiếp trên trình duyệt."""
     try:
-        out = recovery.sync_from_leader()
-        if isinstance(out, dict) and out.get("replaced"):
-            RECOVERY_LOCKED = False
-        return out if isinstance(out, dict) else {"result": out}
+        return _sync_with_leader()
     except Exception as exc:
         logger.exception("replica_sync failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

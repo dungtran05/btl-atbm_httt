@@ -112,6 +112,7 @@ class JSONChainStorage:
             try:
                 if self.path.exists():
                     prev = self.load()
+                    # Mỗi máy replica: backup = snapshot blockchain.json ngay trước lần ghi (đồng bộ leader / append).
                     safe_write_json(self.backup_path, prev)
             except Exception:
                 logger.exception("Failed writing backup")

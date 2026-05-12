@@ -3,9 +3,10 @@
 Replica **không mining**, **không tự tạo block**. Vai trò:
 
 1. **Nhận block** từ Leader (`POST /replica/add_block`) — verify hash, chữ ký, `previous_hash`.
-2. **Đồng bị định kỳ** với Leader: `GET {LEADER_URL}/chain` (cùng định dạng với backend `export_for_replica`).
-3. **Verify định kỳ** chain cục bộ + file checksum — lỗi thì kích hoạt **recover** (backup → leader/peers).
-4. **Giữ chain** an toàn (ghi JSON atomic + lock + backup).
+2. **Đồng bộ định kỳ** với Leader: `GET {LEADER_URL}/chain` (cùng định dạng với backend `export_for_replica`).
+3. **Đồng bộ khi truy cập**: mở trình duyệt tới `http://<replica>:<port>/` (hoặc `GET /replica/sync`) để kéo chain ngay; file `data/blockchain.json` được cập nhật, `data/blockchain_backup.json` giữ snapshot bản trước khi ghi.
+4. **Verify định kỳ** chain cục bộ + file checksum — lỗi thì kích hoạt **recover** (backup → leader/peers).
+5. **Giữ chain** an toàn (ghi JSON atomic + lock + backup).
 
 ## Tham gia chuẩn với Leader
 
@@ -15,8 +16,11 @@ Trên máy **Leader** (backend FastAPI), để replica đọc được chain:
 
 Trên **Replica**, trong `.env`:
 
-- `LEADER_URL=http://IP_LEADER:PORT` — ví dụ `http://127.0.0.1:8000`
-- `LEADER_SYNC_INTERVAL_S=5` — mỗi 5 giây kéo chain (đặt `0` để tắt; vẫn gọi tay `POST /replica/sync`).
+- `LEADER_URL=http://IP_LEADER:PORT` — ví dụ `http://127.0.0.1:8000` hoặc IP Radmin của máy chạy backend
+- `LEADER_SYNC_INTERVAL_S=5` — mỗi 5 giây kéo chain (đặt `0` để tắt nền; vẫn đồng bộ khi mở `/` hoặc `GET|POST /replica/sync`).
+- `LEADER_FETCH_TIMEOUT_S=15` — timeout HTTP tới Leader/peers.
+- `SYNC_ON_ROOT_GET=true` — mở trang `/` có chạy đồng bộ ngay (`false` chỉ hiển thị trang tĩnh + link).
+- `REPLICA_CORS_ORIGINS=*` — CORS cho trình duyệt (hoặc danh sách origin, cách nhau dấu phẩy).
 - `SYNC_TRUST_LEADER=true` — khi fork hoặc cùng độ dài nhưng checksum khác: **ghi đè theo Leader** (khuyến nghị cho replica phụ).
 
 Copy **`keys/public_key.pem`** từ Leader vào `replica_new/keys/` (hoặc `KEY_DIR`).
@@ -47,12 +51,13 @@ python app.py
 
 | Endpoint | Mô tả |
 |----------|--------|
+| `GET /` | Trang HTML: **đồng bộ ngay** với Leader (nếu `SYNC_ON_ROOT_GET=true`) + hiển thị kết quả JSON |
 | `GET /health` | Trạng thái + `recovery_locked` |
 | `GET /chain` | Chain cho Leader/recovery đọc |
 | `GET /checksum` | Checksum toàn chain |
 | `GET /verify` | Kiểm tra chain + checksum cục bộ |
 | `POST /replica/add_block` | Leader broadcast block |
-| `POST /replica/sync` | Đồng bị ngay với `LEADER_URL` |
+| `GET` hoặc `POST /replica/sync` | Đồng bộ ngay với `LEADER_URL` (JSON; có `local_files`) |
 | `POST /replica/recover` | Recover: backup → network (leader + `PEER_REPLICAS`) |
 
 ## Storage (trong thư mục replica)

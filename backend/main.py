@@ -38,6 +38,12 @@ app = FastAPI(title="DocumentChain API")
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://127.0.0.1:5173").rstrip("/")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 NODE_ROLE = os.environ.get("NODE_ROLE", "leader").strip().lower()  # leader | replica
+_cors_extra = os.environ.get("CORS_EXTRA_ORIGINS", "")
+_cors_origins = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    *[o.strip() for o in _cors_extra.split(",") if o.strip()],
+]
 app.include_router(build_blockchain_router(ROOT_DIR))
 app.add_middleware(
     SessionMiddleware,
@@ -46,10 +52,7 @@ app.add_middleware(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,6 +148,23 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/network-test")
+def network_test(request: Request) -> dict[str, Any]:
+    """Dùng để kiểm tra từ máy khác trong mạng (Radmin/LAN): GET /api/network-test"""
+    hint = os.environ.get("NETWORK_TEST_HINT", "").strip()
+    base = str(request.base_url).rstrip("/")
+    out: dict[str, Any] = {
+        "ok": True,
+        "message": "Kết nối tới API DocumentChain thành công.",
+        "server_time_utc": datetime.now(timezone.utc).isoformat(),
+        "base_url": base,
+        "try_docs": f"{base}/docs",
+    }
+    if hint:
+        out["hint"] = hint
+    return out
 
 
 @app.post("/api/auth/login")
