@@ -22,7 +22,7 @@ class Block:
     qr_path: str = ""
     nonce: int = 0
     hash: str = ""
-    issuer_id: int = 0
+    issuer_name: str = ""  # Tên đơn vị của issuer gắn trực tiếp lên block
 
     def payload(self) -> dict[str, Any]:
         data = asdict(self)
@@ -35,8 +35,8 @@ class Block:
             data.pop("file_path", None)
         if not self.qr_path:
             data.pop("qr_path", None)
-        if not self.issuer_id:
-            data.pop("issuer_id", None)
+        if not self.issuer_name:
+            data.pop("issuer_name", None)
         return data
 
     def calculate_hash(self) -> str:
@@ -81,7 +81,7 @@ class DocumentBlockchain:
         metadata: dict[str, Any] | None = None,
         file_path: str = "",
         qr_path: str = "",
-        issuer_id: int = 0,
+        issuer_name: str = "",
     ) -> Block:
         previous = self.chain[-1]
         block = Block(
@@ -96,7 +96,7 @@ class DocumentBlockchain:
             metadata=metadata,
             file_path=file_path,
             qr_path=qr_path,
-            issuer_id=issuer_id,
+            issuer_name=issuer_name,
         )
         block.mine(self.difficulty)
         self.chain.append(block)

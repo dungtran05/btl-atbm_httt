@@ -1,0 +1,16 @@
+Ban chi can copy NGUYEN thu muc replica_new (tat ca file ben trong).
+
+Bat buoc:
+  app.py  models.py  storage.py  checksum.py  crypto.py  verify.py
+  manager.py  recovery.py  peer_sync.py  background.py
+  requirements.txt  .env
+
+Tuy chon:
+  README.md  run.ps1  run.sh  COPY_THIS_FOLDER.txt
+
+Sau khi copy:
+  1) Sua file .env: LEADER_URL + PORT (file mau co san trong repo)
+  2) Tao keys/public_key.pem (copy tu may Leader)
+  3) Chay:  python app.py   HOAC   .\run.ps1 (Windows) / ./run.sh (Linux/macOS)
+
+Du lieu chay se nam trong: data/ corrupted/ (tu dong tao)

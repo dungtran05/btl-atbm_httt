@@ -4,5 +4,7 @@ __pycache__/
 data/
 keys/
 .env
+# Cho phép commit file cấu hình mẫu của replica độc lập:
+!replica_new/.env
 frontend/node_modules/
 frontend/dist/
